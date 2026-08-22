@@ -23,7 +23,63 @@ app.use(
 
 app.route('/', rootRoute);
 app.route('/health', healthRoute);
+// ==========================================
+// RUTE WEBHOOK TELEGRAM BOT
+// ==========================================
+app.post('/bot-webhook', async (c) => {
+    // [Belum Terverifikasi] Kode ini berasumsi Anda telah mengizinkan variabel ini di types.ts
+    const token = (c.env as any).TELEGRAM_BOT_TOKEN;
+    const secret = (c.env as any).TELEGRAM_SECRET_TOKEN;
 
+    // Mitigasi permintaan palsu
+    if (secret && c.req.header('X-Telegram-Bot-Api-Secret-Token') !== secret) {
+        return c.json(createErrorResponse('Unauthorized request'), 401);
+    }
+
+    let body;
+    try {
+        body = await c.req.json();
+    } catch {
+        return c.json(createErrorResponse('Invalid JSON format'), 400);
+    }
+
+    if (!body?.message?.text || !body?.message?.chat?.id) {
+        return c.text('OK', 200);
+    }
+
+    const text = body.message.text.trim();
+    const chatId = body.message.chat.id;
+    let replyMessage = 'Ketik /harga untuk mengecek harga Antam dari Aneka Logam.';
+
+    if (text === '/harga') {
+        try {
+            // Memanggil API internal
+            const url = new URL(c.req.url);
+            const res = await fetch(`${url.origin}/api/prices/anekalogam`);
+            if (res.ok) {
+                const data: any = await res.json();
+                const item = data.data?.[0];
+                if (item) {
+                    replyMessage = `📊 *Harga Emas*\nJual: Rp ${item.sellPrice}\nBuyback: Rp ${item.buybackPrice}`;
+                }
+            }
+        } catch {
+            replyMessage = 'Sedang terjadi gangguan jaringan ke sumber data.';
+        }
+    }
+
+    try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: replyMessage, parse_mode: 'Markdown' })
+        });
+    } catch (e) {
+        // [Inferensi] Log error secara diam-diam agar tidak menghentikan runtime
+    }
+
+    return c.text('OK', 200);
+});
 const SOURCES = registerPriceFeatures(app);
 
 registerNewsFeatures(app);
