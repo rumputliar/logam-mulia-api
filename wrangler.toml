@@ -8,7 +8,7 @@ ENVIRONMENT = "development"
 [[d1_databases]]
 binding = "DB_D1"
 database_name = "logam_mulia_db"
-database_id = "c6daf29f-903d-497c-bba6-f427ac3b67a5"
+database_id = "88d9f283-5552-406a-9a1c-7d3914e0391f"
 migrations_dir = "migrations/d1"
 
 [observability]
