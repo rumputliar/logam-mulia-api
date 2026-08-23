@@ -10,7 +10,6 @@ import healthRoute from './features/health';
 import { listSourcesRoute, historyRoute } from './lib/openapi-helpers';
 
 const app = new OpenAPIHono<{ Bindings: Bindings }>();
-
 app.use(
     '*',
     cors({
