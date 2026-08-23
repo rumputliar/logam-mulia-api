@@ -98,8 +98,7 @@ export default {
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            // Teks log ini diubah agar kita tahu pasti versi mana yang sedang berjalan
-            console.log("1. Cron job dimulai (Versi Internal Terbaru)...");
+            console.log("1. Cron job dimulai (Versi Internal app.fetch)...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
@@ -110,12 +109,13 @@ export default {
             }
 
             try {
-                console.log("2. Mengambil API via app.request...");
+                console.log("2. Mengambil API internal...");
                 
-                // Mengupayakan efisiensi CPU dan menghindari blokir loopback jaringan
                 const reqUrl = 'https://logam-mulia-api.en68.workers.dev/api/prices/anekalogam';
                 const req = new Request(reqUrl);
-                const response = await app.request(req, env);
+                
+                // MENGGUNAKAN app.fetch: Ini mengupayakan agar env dan ctx terbaca sempurna oleh Hono
+                const response = await app.fetch(req, env, ctx);
                 
                 if (response.ok) {
                     const json: any = await response.json();
