@@ -98,7 +98,7 @@ export default {
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            console.log("1. Cron job (Gabungan & Rata-rata) dimulai...");
+            console.log("1. Cron job (Normalisasi Berat & Rata-rata) dimulai...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
@@ -110,8 +110,8 @@ export default {
                 'bankbsi', 'pegadaian', 'kursdolar', 'hargaemas-net'
             ];
 
-            let totalSellPrice = 0;
-            let totalBuybackPrice = 0;
+            let totalSellPricePerGram = 0;
+            let totalBuybackPricePerGram = 0;
             let validSourceCount = 0;
             let detailPesan = ""; 
 
@@ -129,11 +129,22 @@ export default {
                         const item = json.data?.[0];
 
                         if (item && item.sellPrice) {
-                            totalSellPrice += Number(item.sellPrice);
-                            totalBuybackPrice += Number(item.buybackPrice || 0);
+                            // Mencari tahu berat dan satuannya dari JSON (Asumsi default: 1 gram)
+                            const weight = Number(item.weight) || 1;
+                            const unit = item.weightUnit || item.weight_unit || 'gram';
+                            
+                            // Normalisasi: Menghitung harga per 1 gram untuk dirata-ratakan
+                            const sellPerGram = Number(item.sellPrice) / weight;
+                            const buybackPerGram = Number(item.buybackPrice || 0) / weight;
+
+                            totalSellPricePerGram += sellPerGram;
+                            if (buybackPerGram > 0) {
+                                totalBuybackPricePerGram += buybackPerGram;
+                            }
                             validSourceCount++;
 
-                            detailPesan += `🔹 *${source.toUpperCase()}*: Jual Rp ${Number(item.sellPrice).toLocaleString('id-ID')} | Beli Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')}\n`;
+                            // Merakit pesan dengan informasi berat yang jelas
+                            detailPesan += `🔹 *${source.toUpperCase()}*: Jual Rp ${Number(item.sellPrice).toLocaleString('id-ID')} | Beli Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')} (per ${weight} ${unit})\n`;
                         }
                     }
                 } catch (e: any) {
@@ -143,16 +154,17 @@ export default {
 
             if (validSourceCount > 0) {
                 console.log("Merakit pesan gabungan...");
-                const avgSell = Math.round(totalSellPrice / validSourceCount);
-                const avgBuyback = Math.round(totalBuybackPrice / validSourceCount);
+                
+                // Rata-rata kini dihitung berdasarkan harga per 1 gram yang seragam
+                const avgSell = Math.round(totalSellPricePerGram / validSourceCount);
+                const avgBuyback = Math.round(totalBuybackPricePerGram / validSourceCount);
 
                 let finalMessage = `🌟 *UPDATE HARGA EMAS TERKINI* 🌟\n\n` +
                                    `${detailPesan}\n` +
-                                   `📈 *RATA-RATA (${validSourceCount} Sumber)*\n` +
+                                   `📈 *RATA-RATA (${validSourceCount} Sumber - Per 1 Gram)*\n` +
                                    `💰 Jual: Rp ${avgSell.toLocaleString('id-ID')}\n` +
                                    `🔄 Buyback: Rp ${avgBuyback.toLocaleString('id-ID')}`;
 
-                // PENAMBAHAN PENGAMAN BATAS KARAKTER (Batas aman 4000 dari max 4096)
                 if (finalMessage.length > 4000) {
                     finalMessage = finalMessage.substring(0, 4000) + "\n\n... [Teks terpotong karena batas limit Telegram]";
                 }
@@ -166,7 +178,7 @@ export default {
                         parse_mode: 'Markdown'
                     })
                 });
-                console.log("Pesan gabungan sukses dikirim ke Telegram.");
+                console.log("Pesan normalisasi sukses dikirim ke Telegram.");
             }
         })());
     }
