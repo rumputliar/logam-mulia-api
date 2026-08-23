@@ -98,21 +98,26 @@ export default {
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            console.log("1. Cron job (Normalisasi Berat & Rata-rata) dimulai...");
+            console.log("1. Cron job (Data Bersih & Rata-rata) dimulai...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
 
             if (!token || !channelId) return;
 
+            // KITA BUANG 'hargaemas-org' DAN 'kursdolar' DARI DAFTAR INI
+            // Hal ini mengupayakan efisiensi RAM karena kita tidak memanggil data yang rusak
             const sources = [
-                'anekalogam', 'indogold', 'hargaemas-org', 'galeri24', 
-                'bankbsi', 'pegadaian', 'kursdolar', 'hargaemas-net'
+                'anekalogam', 'indogold', 'galeri24', 
+                'bankbsi', 'pegadaian', 'hargaemas-net'
             ];
 
             let totalSellPricePerGram = 0;
             let totalBuybackPricePerGram = 0;
-            let validSourceCount = 0;
+            
+            let validSellCount = 0;
+            let validBuybackCount = 0;
+            
             let detailPesan = ""; 
 
             for (let i = 0; i < sources.length; i++) {
@@ -129,21 +134,26 @@ export default {
                         const item = json.data?.[0];
 
                         if (item && item.sellPrice) {
-                            // Mencari tahu berat dan satuannya dari JSON (Asumsi default: 1 gram)
+                            // Mencari tahu berat asli dari sumber
                             const weight = Number(item.weight) || 1;
                             const unit = item.weightUnit || item.weight_unit || 'gram';
                             
-                            // Normalisasi: Menghitung harga per 1 gram untuk dirata-ratakan
+                            // PROSES NORMALISASI KE 1 GRAM:
+                            // Membagi harga mentah dengan beratnya. 
+                            // Contoh: 1.421.000 / 0.5 gram = 2.842.000 (Harga per 1 gram)
                             const sellPerGram = Number(item.sellPrice) / weight;
                             const buybackPerGram = Number(item.buybackPrice || 0) / weight;
 
-                            totalSellPricePerGram += sellPerGram;
+                            if (sellPerGram > 0) {
+                                totalSellPricePerGram += sellPerGram;
+                                validSellCount++;
+                            }
+
                             if (buybackPerGram > 0) {
                                 totalBuybackPricePerGram += buybackPerGram;
+                                validBuybackCount++;
                             }
-                            validSourceCount++;
 
-                            // Merakit pesan dengan informasi berat yang jelas
                             detailPesan += `🔹 *${source.toUpperCase()}*: Jual Rp ${Number(item.sellPrice).toLocaleString('id-ID')} | Beli Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')} (per ${weight} ${unit})\n`;
                         }
                     }
@@ -152,21 +162,23 @@ export default {
                 }
             }
 
-            if (validSourceCount > 0) {
-                console.log("Merakit pesan gabungan...");
+            if (validSellCount > 0) {
+                console.log("Merakit pesan akhir yang sudah bersih...");
                 
-                // Rata-rata kini dihitung berdasarkan harga per 1 gram yang seragam
-                const avgSell = Math.round(totalSellPricePerGram / validSourceCount);
-                const avgBuyback = Math.round(totalBuybackPricePerGram / validSourceCount);
+                const avgSell = Math.round(totalSellPricePerGram / validSellCount);
+                
+                const avgBuyback = validBuybackCount > 0 
+                    ? Math.round(totalBuybackPricePerGram / validBuybackCount) 
+                    : 0;
 
                 let finalMessage = `🌟 *UPDATE HARGA EMAS TERKINI* 🌟\n\n` +
                                    `${detailPesan}\n` +
-                                   `📈 *RATA-RATA (${validSourceCount} Sumber - Per 1 Gram)*\n` +
-                                   `💰 Jual: Rp ${avgSell.toLocaleString('id-ID')}\n` +
-                                   `🔄 Buyback: Rp ${avgBuyback.toLocaleString('id-ID')}`;
+                                   `📈 *RATA-RATA (Per 1 Gram)*\n` +
+                                   `💰 Jual: Rp ${avgSell.toLocaleString('id-ID')} (dari ${validSellCount} sumber)\n` +
+                                   `🔄 Buyback: Rp ${avgBuyback.toLocaleString('id-ID')} (dari ${validBuybackCount} sumber)`;
 
                 if (finalMessage.length > 4000) {
-                    finalMessage = finalMessage.substring(0, 4000) + "\n\n... [Teks terpotong karena batas limit Telegram]";
+                    finalMessage = finalMessage.substring(0, 4000) + "\n\n... [Teks terpotong]";
                 }
 
                 await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -178,7 +190,6 @@ export default {
                         parse_mode: 'Markdown'
                     })
                 });
-                console.log("Pesan normalisasi sukses dikirim ke Telegram.");
             }
         })());
     }
