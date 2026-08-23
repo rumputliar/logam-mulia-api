@@ -98,32 +98,28 @@ export default {
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            console.log("1. Cron job (Multi-Sumber & Rata-rata) dimulai...");
+            console.log("1. Cron job (Gabungan & Rata-rata) dimulai...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
 
-            if (!token || !channelId) {
-                console.log("ERROR: Token atau Channel ID tidak ditemukan!");
-                return; 
-            }
+            if (!token || !channelId) return;
 
-            // Daftar sumber yang Anda tentukan (menghapus duplikat logammulia)
             const sources = [
                 'anekalogam', 'indogold', 'hargaemas-org', 'galeri24', 
-                'bankbsi', 'pegadaian', 'logammulia', 'kursdolar', 'hargaemas-net'
+                'bankbsi', 'pegadaian', 'kursdolar', 'hargaemas-net'
             ];
 
             let totalSellPrice = 0;
             let totalBuybackPrice = 0;
             let validSourceCount = 0;
+            let detailPesan = ""; 
 
             for (let i = 0; i < sources.length; i++) {
                 const source = sources[i];
-                console.log(`[${i+1}/${sources.length}] Mengambil data dari: ${source}...`);
+                console.log(`Mengambil data: ${source}...`);
 
                 try {
-                    // Mengupayakan pemanggilan internal (hemat sumber daya jaringan)
                     const reqUrl = `https://logam-mulia-api.en68.workers.dev/api/prices/${source}`;
                     const req = new Request(reqUrl);
                     const response = await app.fetch(req, env, ctx);
@@ -133,64 +129,44 @@ export default {
                         const item = json.data?.[0];
 
                         if (item && item.sellPrice) {
-                            // Mengumpulkan angka untuk rata-rata
                             totalSellPrice += Number(item.sellPrice);
-                            if (item.buybackPrice) {
-                                totalBuybackPrice += Number(item.buybackPrice);
-                            }
+                            totalBuybackPrice += Number(item.buybackPrice || 0);
                             validSourceCount++;
 
-                            // Merakit pesan individual
-                            const text = `📈 *Harga Emas: ${source.toUpperCase()}*\n\n` +
-                                         `📅 Tanggal: ${item.recordedDate || '-'}\n` +
-                                         `💰 Jual: Rp ${Number(item.sellPrice).toLocaleString('id-ID')}\n` +
-                                         `🔄 Buyback: Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')}`;
-
-                            // Mengirim ke Telegram
-                            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    chat_id: channelId,
-                                    text: text,
-                                    parse_mode: 'Markdown'
-                                })
-                            });
+                            detailPesan += `🔹 *${source.toUpperCase()}*: Jual Rp ${Number(item.sellPrice).toLocaleString('id-ID')} | Beli Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')}\n`;
                         }
                     }
                 } catch (e: any) {
                     console.log(`ERROR pada ${source}:`, e.message);
                 }
-
-                // Memberikan jeda 5 detik menggunakan Promise (kecuali pada putaran terakhir)
-                if (i < sources.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                }
             }
 
-            // MENGHITUNG DAN MENGIRIM RATA-RATA
             if (validSourceCount > 0) {
-                console.log("Semua data terkirim, menghitung rata-rata...");
+                console.log("Merakit pesan gabungan...");
                 const avgSell = Math.round(totalSellPrice / validSourceCount);
                 const avgBuyback = Math.round(totalBuybackPrice / validSourceCount);
 
-                const avgText = `🌟 *RANGKUMAN RATA-RATA HARGA EMAS* 🌟\n\n` +
-                                `📊 Bersumber dari ${validSourceCount} penyedia\n` +
-                                `💰 Rata-rata Jual: Rp ${avgSell.toLocaleString('id-ID')}\n` +
-                                `🔄 Rata-rata Buyback: Rp ${avgBuyback.toLocaleString('id-ID')}`;
+                let finalMessage = `🌟 *UPDATE HARGA EMAS TERKINI* 🌟\n\n` +
+                                   `${detailPesan}\n` +
+                                   `📈 *RATA-RATA (${validSourceCount} Sumber)*\n` +
+                                   `💰 Jual: Rp ${avgSell.toLocaleString('id-ID')}\n` +
+                                   `🔄 Buyback: Rp ${avgBuyback.toLocaleString('id-ID')}`;
+
+                // PENAMBAHAN PENGAMAN BATAS KARAKTER (Batas aman 4000 dari max 4096)
+                if (finalMessage.length > 4000) {
+                    finalMessage = finalMessage.substring(0, 4000) + "\n\n... [Teks terpotong karena batas limit Telegram]";
+                }
 
                 await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         chat_id: channelId,
-                        text: avgText,
+                        text: finalMessage,
                         parse_mode: 'Markdown'
                     })
                 });
-                console.log("Rangkuman rata-rata berhasil dikirim.");
-            } else {
-                console.log("Tidak ada data valid yang bisa dihitung untuk rata-rata.");
+                console.log("Pesan gabungan sukses dikirim ke Telegram.");
             }
         })());
     }
