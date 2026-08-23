@@ -90,38 +90,44 @@ app.doc('/api/docs/json', {
 
 app.get('/api/docs', Scalar({ url: '/api/docs/json' }));
 
+// ==========================================
+// EXPORT CLOUDFLARE WORKERS (API & CRON JOB)
+// ==========================================
 export default {
     fetch: app.fetch,
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            console.log("1. Cron job dimulai...");
+            // Teks log ini diubah agar kita tahu pasti versi mana yang sedang berjalan
+            console.log("1. Cron job dimulai (Versi Internal Terbaru)...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
 
             if (!token || !channelId) {
                 console.log("ERROR: Token atau Channel ID tidak ditemukan di Secrets!");
-                return; // Menghentikan eksekusi jika variabel kosong
+                return; 
             }
 
             try {
-                console.log("2. Mengambil data API harga emas...");
-                const apiUrl = 'https://logam-mulia-api.en68.workers.dev/api/prices/anekalogam';
-                const response = await fetch(apiUrl);
+                console.log("2. Mengambil API via app.request...");
+                
+                // Mengupayakan efisiensi CPU dan menghindari blokir loopback jaringan
+                const reqUrl = 'https://logam-mulia-api.en68.workers.dev/api/prices/anekalogam';
+                const req = new Request(reqUrl);
+                const response = await app.request(req, env);
                 
                 if (response.ok) {
                     const json: any = await response.json();
                     const item = json.data?.[0];
 
                     if (item) {
-                        console.log("3. Data didapatkan, merakit pesan...");
+                        console.log("3. Data didapatkan, mengirim pesan ke saluran...");
                         const text = `📊 *Update Harga Emas Antam*\n\n` +
                                      `📅 Tanggal: ${item.recordedDate || '-'}\n` +
                                      `💰 Jual: Rp ${Number(item.sellPrice).toLocaleString('id-ID')}\n` +
                                      `🔄 Buyback: Rp ${Number(item.buybackPrice).toLocaleString('id-ID')}`;
 
-                        console.log("4. Mengirim data ke Telegram...");
                         const tgResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -133,12 +139,12 @@ export default {
                         });
                         
                         const tgResult = await tgResponse.json();
-                        console.log("5. Respons dari Telegram:", JSON.stringify(tgResult));
+                        console.log("4. Status Telegram:", JSON.stringify(tgResult));
                     } else {
-                        console.log("ERROR: Format data JSON dari API kosong atau tidak sesuai.");
+                        console.log("ERROR: Data JSON berhasil diambil, tetapi isinya kosong.");
                     }
                 } else {
-                    console.log("ERROR: Gagal mengambil API emas. Status HTTP:", response.status);
+                    console.log("ERROR: API internal gagal. Status HTTP:", response.status);
                 }
             } catch (e: any) {
                 console.log("ERROR SISTEM:", e.message);
