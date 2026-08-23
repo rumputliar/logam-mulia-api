@@ -98,56 +98,99 @@ export default {
 
     scheduled: async (event: any, env: any, ctx: any) => {
         ctx.waitUntil((async () => {
-            console.log("1. Cron job dimulai (Versi Internal app.fetch)...");
+            console.log("1. Cron job (Multi-Sumber & Rata-rata) dimulai...");
             
             const token = env.TELEGRAM_BOT_TOKEN;
             const channelId = env.TELEGRAM_CHANNEL_ID;
 
             if (!token || !channelId) {
-                console.log("ERROR: Token atau Channel ID tidak ditemukan di Secrets!");
+                console.log("ERROR: Token atau Channel ID tidak ditemukan!");
                 return; 
             }
 
-            try {
-                console.log("2. Mengambil API internal...");
-                
-                const reqUrl = 'https://logam-mulia-api.en68.workers.dev/api/prices/anekalogam';
-                const req = new Request(reqUrl);
-                
-                // MENGGUNAKAN app.fetch: Ini mengupayakan agar env dan ctx terbaca sempurna oleh Hono
-                const response = await app.fetch(req, env, ctx);
-                
-                if (response.ok) {
-                    const json: any = await response.json();
-                    const item = json.data?.[0];
+            // Daftar sumber yang Anda tentukan (menghapus duplikat logammulia)
+            const sources = [
+                'anekalogam', 'indogold', 'hargaemas-org', 'galeri24', 
+                'bankbsi', 'pegadaian', 'logammulia', 'kursdolar', 'hargaemas-net'
+            ];
 
-                    if (item) {
-                        console.log("3. Data didapatkan, mengirim pesan ke saluran...");
-                        const text = `📊 *Update Harga Emas Antam*\n\n` +
-                                     `📅 Tanggal: ${item.recordedDate || '-'}\n` +
-                                     `💰 Jual: Rp ${Number(item.sellPrice).toLocaleString('id-ID')}\n` +
-                                     `🔄 Buyback: Rp ${Number(item.buybackPrice).toLocaleString('id-ID')}`;
+            let totalSellPrice = 0;
+            let totalBuybackPrice = 0;
+            let validSourceCount = 0;
 
-                        const tgResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                chat_id: channelId,
-                                text: text,
-                                parse_mode: 'Markdown'
-                            })
-                        });
-                        
-                        const tgResult = await tgResponse.json();
-                        console.log("4. Status Telegram:", JSON.stringify(tgResult));
-                    } else {
-                        console.log("ERROR: Data JSON berhasil diambil, tetapi isinya kosong.");
+            for (let i = 0; i < sources.length; i++) {
+                const source = sources[i];
+                console.log(`[${i+1}/${sources.length}] Mengambil data dari: ${source}...`);
+
+                try {
+                    // Mengupayakan pemanggilan internal (hemat sumber daya jaringan)
+                    const reqUrl = `https://logam-mulia-api.en68.workers.dev/api/prices/${source}`;
+                    const req = new Request(reqUrl);
+                    const response = await app.fetch(req, env, ctx);
+                    
+                    if (response.ok) {
+                        const json: any = await response.json();
+                        const item = json.data?.[0];
+
+                        if (item && item.sellPrice) {
+                            // Mengumpulkan angka untuk rata-rata
+                            totalSellPrice += Number(item.sellPrice);
+                            if (item.buybackPrice) {
+                                totalBuybackPrice += Number(item.buybackPrice);
+                            }
+                            validSourceCount++;
+
+                            // Merakit pesan individual
+                            const text = `📈 *Harga Emas: ${source.toUpperCase()}*\n\n` +
+                                         `📅 Tanggal: ${item.recordedDate || '-'}\n` +
+                                         `💰 Jual: Rp ${Number(item.sellPrice).toLocaleString('id-ID')}\n` +
+                                         `🔄 Buyback: Rp ${Number(item.buybackPrice || 0).toLocaleString('id-ID')}`;
+
+                            // Mengirim ke Telegram
+                            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    chat_id: channelId,
+                                    text: text,
+                                    parse_mode: 'Markdown'
+                                })
+                            });
+                        }
                     }
-                } else {
-                    console.log("ERROR: API internal gagal. Status HTTP:", response.status);
+                } catch (e: any) {
+                    console.log(`ERROR pada ${source}:`, e.message);
                 }
-            } catch (e: any) {
-                console.log("ERROR SISTEM:", e.message);
+
+                // Memberikan jeda 5 detik menggunakan Promise (kecuali pada putaran terakhir)
+                if (i < sources.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                }
+            }
+
+            // MENGHITUNG DAN MENGIRIM RATA-RATA
+            if (validSourceCount > 0) {
+                console.log("Semua data terkirim, menghitung rata-rata...");
+                const avgSell = Math.round(totalSellPrice / validSourceCount);
+                const avgBuyback = Math.round(totalBuybackPrice / validSourceCount);
+
+                const avgText = `🌟 *RANGKUMAN RATA-RATA HARGA EMAS* 🌟\n\n` +
+                                `📊 Bersumber dari ${validSourceCount} penyedia\n` +
+                                `💰 Rata-rata Jual: Rp ${avgSell.toLocaleString('id-ID')}\n` +
+                                `🔄 Rata-rata Buyback: Rp ${avgBuyback.toLocaleString('id-ID')}`;
+
+                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: channelId,
+                        text: avgText,
+                        parse_mode: 'Markdown'
+                    })
+                });
+                console.log("Rangkuman rata-rata berhasil dikirim.");
+            } else {
+                console.log("Tidak ada data valid yang bisa dihitung untuk rata-rata.");
             }
         })());
     }
